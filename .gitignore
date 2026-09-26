@@ -31,3 +31,8 @@ openssl/.github/
 fec/.github/
 openssl/.github/
 fec/.github/
+fec/.git-meta-backup/
+openssl/.git-meta-backup/
+openssl/test/**/*.crt
+openssl/test/**/*.cer
+openssl/test/**/*.srl
