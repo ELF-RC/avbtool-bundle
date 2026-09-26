@@ -61,8 +61,10 @@ jobs:
           cd openssl
           # no-asm: skip Perl-generated assembly (faster, fewer toolchain deps)
           # no-shared: static libs — no runtime library path juggling in the package
+          # -no-docs: skip man/html doc generation (needs Pod::Man/Pod::Html,
+          # not present on the x86_64 ubuntu-22.04 runner base image)
           # tee to the log AND stdout so a failure is visible in the run log.
-          ./Configure no-asm no-shared --prefix="$PWD/install" \
+          ./Configure no-asm no-shared -no-docs --prefix="$PWD/install" \
             2>&1 | tee ../build_logs/openssl-configure.log
           make -j"$(nproc)" \
             2>&1 | tee ../build_logs/openssl-make.log
