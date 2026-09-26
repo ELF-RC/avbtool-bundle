@@ -29,3 +29,5 @@ openssl/demos/
 # Nested project metadata that would be picked up by the runner
 openssl/.github/
 fec/.github/
+openssl/.github/
+fec/.github/
