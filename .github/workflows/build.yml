@@ -65,11 +65,20 @@ jobs:
           # not present on the x86_64 ubuntu-22.04 runner base image)
           # tee to the log AND stdout so a failure is visible in the run log.
           ./Configure no-asm no-shared -no-docs --prefix="$PWD/install" \
-            2>&1 | tee ../build_logs/openssl-configure.log
+            > ../build_logs/openssl-configure.log 2>&1 || {
+              echo "=== Configure FAILED (exit $?), log tail:";
+              tail -30 ../build_logs/openssl-configure.log;
+              exit 1; }
           make -j"$(nproc)" \
-            2>&1 | tee ../build_logs/openssl-make.log
+            > ../build_logs/openssl-make.log 2>&1 || {
+              echo "=== make FAILED (exit $?), log tail:";
+              tail -30 ../build_logs/openssl-make.log;
+              exit 1; }
           make install \
-            2>&1 | tee ../build_logs/openssl-install.log
+            > ../build_logs/openssl-install.log 2>&1 || {
+              echo "=== make install FAILED (exit $?), log tail:";
+              tail -30 ../build_logs/openssl-install.log;
+              exit 1; }
           ls -l install/bin/openssl install/lib/libcrypto.a install/lib/libssl.a
 
       - name: Build fec CLI
