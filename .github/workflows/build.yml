@@ -59,24 +59,33 @@ jobs:
           set -o pipefail
           mkdir -p build_logs
           cd openssl
+          # Sanity: fail early with a clear message if the checkout is
+          # incomplete (it has been observed that some runners materialise
+          # a partial vendored openssl/ tree, which makes Configure exit
+          # non-zero without any useful output of its own).
+          for f in Configure config config.com build.info configdata.pm.in; do
+            [ -f "$f" ] || { echo "FATAL: missing vendored source file openssl/$f — checkout incomplete"; exit 2; }
+          done
+          [ -d crypto ] && [ -d apps ] && [ -d include/openssl ] || { echo "FATAL: missing vendored source dir — checkout incomplete"; exit 2; }
+          ls include/openssl/*.h.in > /dev/null 2>&1 || { echo "FATAL: missing include/openssl/*.h.in templates — checkout incomplete"; exit 2; }
+          echo "=== vendored openssl tree OK (version):"; grep -E '^MAJOR|^MINOR|^PATCH' VERSION.dat 2>/dev/null || head -3 CHANGES.md
           # no-asm: skip Perl-generated assembly (faster, fewer toolchain deps)
           # no-shared: static libs — no runtime library path juggling in the package
           # -no-docs: skip man/html doc generation (needs Pod::Man/Pod::Html,
           # not present on the x86_64 ubuntu-22.04 runner base image)
-          # tee to the log AND stdout so a failure is visible in the run log.
           ./Configure no-asm no-shared -no-docs --prefix="$PWD/install" \
             > ../build_logs/openssl-configure.log 2>&1 || {
-              echo "=== Configure FAILED (exit $?), log tail:";
+              echo "=== Configure FAILED, log tail:";
               tail -30 ../build_logs/openssl-configure.log;
               exit 1; }
           make -j"$(nproc)" \
             > ../build_logs/openssl-make.log 2>&1 || {
-              echo "=== make FAILED (exit $?), log tail:";
+              echo "=== make FAILED, log tail:";
               tail -30 ../build_logs/openssl-make.log;
               exit 1; }
           make install \
             > ../build_logs/openssl-install.log 2>&1 || {
-              echo "=== make install FAILED (exit $?), log tail:";
+              echo "=== make install FAILED, log tail:";
               tail -30 ../build_logs/openssl-install.log;
               exit 1; }
           ls -l install/bin/openssl install/lib/libcrypto.a install/lib/libssl.a
