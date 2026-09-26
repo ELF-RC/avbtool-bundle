@@ -78,6 +78,12 @@ jobs:
               echo "=== Configure FAILED, log tail:";
               tail -30 ../build_logs/openssl-configure.log;
               exit 1; }
+          # x86_64 runners put static libs in install/lib64; normalise so
+          # downstream steps (and the packaged fec binary) see a single
+          # well-known layout: install/lib.
+          if [ -d "$PWD/install/lib64" ] && [ ! -d "$PWD/install/lib" ]; then
+            mv "$PWD/install/lib64" "$PWD/install/lib"
+          fi
           make -j"$(nproc)" \
             > ../build_logs/openssl-make.log 2>&1 || {
               echo "=== make FAILED, log tail:";
@@ -89,6 +95,8 @@ jobs:
               tail -30 ../build_logs/openssl-install.log;
               exit 1; }
           ls -l install/bin/openssl install/lib/libcrypto.a install/lib/libssl.a
+          # Smoke test the packaged CLI
+          ./install/bin/openssl version
 
       - name: Build fec CLI
         run: |
