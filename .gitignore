@@ -36,3 +36,5 @@ openssl/.git-meta-backup/
 openssl/test/**/*.crt
 openssl/test/**/*.cer
 openssl/test/**/*.srl
+openssl/.git-meta-backup/
+fec/.git-meta-backup/
