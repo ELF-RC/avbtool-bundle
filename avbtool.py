@@ -3493,7 +3493,7 @@ class Avb(object):
                           output_vbmeta_image, do_not_append_vbmeta_image,
                           print_required_libavb_version,
                           use_persistent_root_digest, do_not_use_ab,
-                          no_hashtree):
+                          no_hashtree, parallel=1):
     """Implements the 'add_hashtree_footer' command.
 
     See https://gitlab.com/cryptsetup/cryptsetup/wikis/DMVerity for
@@ -3537,6 +3537,10 @@ class Avb(object):
       use_persistent_root_digest: Use a persistent root digest on device.
       do_not_use_ab: The partition does not use A/B.
       no_hashtree: Do not append hashtree. Set size in descriptor as zero.
+      parallel: Number of worker processes for level-0 hashing.
+        1 (the default) uses the original serial loop; values
+        above 1 use multiprocessing for speed on large images.
+        Output is byte-identical to the serial path.
 
     Raises:
       AvbError: If an argument is incorrect or adding the hashtree footer
@@ -3655,7 +3659,8 @@ class Avb(object):
                                                   hash_algorithm, salt,
                                                   digest_padding,
                                                   hash_level_offsets,
-                                                  tree_size)
+                                                  tree_size,
+                                                  parallel=parallel)
 
       # Generate HashtreeDescriptor with details about the tree we
       # just generated.
@@ -4012,8 +4017,41 @@ def generate_fec_data(image_filename, num_roots):
   return fec_data[0:fec_size]
 
 
+def _parallel_level0_worker(args):
+  """Worker for the multiprocessing branch of generate_hash_tree().
+
+  args is a tuple (image_filename, offset, chunk_bytes, block_size,
+  hash_alg_name, salt, digest_padding) - all plain types so it can be
+  pickled to a worker process.  Returns a list of (offset, value)
+  tuples, one per block (plus one per digest_padding slot) in the chunk.
+  The end-block zero-padding and digest_padding semantics are preserved
+  exactly; the caller stitches results back by block offset, so the
+  combined tree is byte-identical to the serial loop regardless of how
+  chunks were split or which worker finished first.
+  """
+  (image_filename, offset, chunk_bytes, block_size,
+   hash_alg_name, salt, digest_padding) = args
+  out = []
+  with open(image_filename, 'rb', buffering=0) as f:
+    f.seek(offset)
+    pos = 0
+    while pos < chunk_bytes:
+      n = min(block_size, chunk_bytes - pos)
+      data = f.read(n)
+      if len(data) < n:
+        data = data + b'\0' * (n - len(data))
+      h = hashlib.new(hash_alg_name, salt)
+      h.update(data)
+      out.append((offset + pos, h.digest()))
+      if digest_padding > 0:
+        out.append((offset + pos, b'\0' * digest_padding))
+      pos += n
+  return out
+
+
 def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
-                       digest_padding, hash_level_offsets, tree_size):
+                       digest_padding, hash_level_offsets, tree_size,
+                       parallel=1):
   """Generates a Merkle-tree for a file.
 
   Arguments:
@@ -4029,6 +4067,14 @@ def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
   Returns:
     A tuple where the first element is the top-level hash as bytes and the
     second element is the hash-tree as bytes.
+    parallel: Number of worker processes for level-0 hashing.  1 (the
+      default) uses the original serial loop.  A value above 1 uses
+      multiprocessing so level-0 digests are computed concurrently in
+      separate processes (bypassing the GIL).  The output is
+      byte-identical to the serial path: each digest depends only on
+      its own block's bytes and the salt, and results are stitched back
+      by block offset - scheduling order does not matter.
+
   """
   hash_ret = bytearray(tree_size)
   hash_src_offset = 0
@@ -4037,6 +4083,60 @@ def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
   while hash_src_size > block_size:
     level_output_list = []
     remaining = hash_src_size
+    if level_num == 0 and parallel > 1:
+      # Parallel level-0: split the source into contiguous chunks, hash
+      # each block independently in worker processes, then stitch the
+      # digests back into level_output_list by block offset.  The
+      # end-block zero-padding and digest_padding are applied exactly
+      # as in the serial loop, so the result is byte-identical.
+      # Note: add_hashtree_footer opens the image with 'rb+' and keeps
+      # it open; the worker processes re-open the same file read-only
+      # (O_RDONLY) at their own offset, which does not conflict with
+      # the parent's open-for-write descriptor on Linux (no locking
+      # beyond the read-only flag), so the pool.map below cannot
+      # deadlock against the parent's own handle.
+      import multiprocessing as _mp
+      num_blocks = (image_size + block_size - 1) // block_size
+      chunk_blocks = (num_blocks + parallel - 1) // parallel
+      tasks = []
+      for w in range(parallel):
+        b0 = w * chunk_blocks
+        b1 = min(num_blocks, (w + 1) * chunk_blocks)
+        if b0 >= b1:
+          continue
+        off0 = b0 * block_size
+        off1 = min(image_size, b1 * block_size)
+        tasks.append((image.name, off0, off1 - off0, block_size,
+                      hash_alg_name, salt, digest_padding))
+      pool = _mp.Pool(parallel)
+      try:
+        results = pool.map(_parallel_level0_worker, tasks)
+      finally:
+        pool.close()
+        pool.join()
+      # Stitch by block offset: each entry is (offset, digest_or_pad).
+      digests = []
+      for entries in results:
+        for off, val in entries:
+          idx2 = off // block_size
+          while len(digests) <= idx2:
+            digests.append(None)
+          if digests[idx2] is None:
+            digests[idx2] = []
+          digests[idx2].append(val)
+      level_output_list = []
+      for block in digests:
+        if block is None:
+          # Should not happen for a valid image size (multiple of
+          # block_size); hash an all-zero block as a safe fallback.
+          h = hashlib.new(hash_alg_name, salt)
+          h.update(b'\0' * block_size)
+          level_output_list.append(h.digest())
+          if digest_padding > 0:
+            level_output_list.append(b'\0' * digest_padding)
+        else:
+          level_output_list.extend(block)
+      remaining = 0
     while remaining > 0:
       hasher = hashlib.new(hash_alg_name, salt)
       # Only read from the file for the first level - for subsequent
@@ -4364,6 +4464,14 @@ class AvbTool(object):
     sub_parser.add_argument('--no_hashtree',
                             action='store_true',
                             help='Do not append hashtree')
+    sub_parser.add_argument('--parallel',
+                            help=('Number of worker processes for level-0 '
+                                  'hashing (default: 1, serial).  Use a '
+                                  'value above 1 to bypass the GIL for '
+                                  'large images.  Output is byte-identical '
+                                  'to the serial path.'),
+                            type=int,
+                            default=1)
     self._add_common_args(sub_parser)
     self._add_common_footer_args(sub_parser)
     sub_parser.set_defaults(func=self.add_hashtree_footer)
@@ -4740,7 +4848,8 @@ class AvbTool(object):
         args.print_required_libavb_version,
         args.use_persistent_digest,
         args.do_not_use_ab,
-        args.no_hashtree)
+        args.no_hashtree,
+        args.parallel)
 
   def erase_footer(self, args):
     """Implements the 'erase_footer' sub-command."""

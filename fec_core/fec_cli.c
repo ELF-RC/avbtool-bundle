@@ -117,10 +117,20 @@ int main(int argc, char **argv) {
   const size_t raw_size = rounds * (size_t)roots * FEC_BLOCK_SIZE;
   unsigned char *fec = calloc(raw_size, 1);
   if (!fec) die("out of memory");
-  unsigned char *codeword = malloc(rs_n);
-  if (!codeword) die("out of memory");
 
+  /* OpenMP parallel encode.  The columns are independent of each other
+   * (column j only writes fec + j*roots and only reads `data` and `rs`),
+   * so a parallel-for over columns is deterministic: the output bytes do
+   * not depend on thread count or scheduling.  The codeword is kept on the
+   * stack (per iteration) so no two threads share it; `rs` is read-only in
+   * encode_rs_char, `data` is read-only, and `fec` is partitioned per
+   * column — there is no data race anywhere in this loop.
+   */
+#ifdef _OPENMP
+  _Pragma("omp parallel for schedule(static)")
+#endif
   for (size_t column = 0; column < rounds * FEC_BLOCK_SIZE; column++) {
+    unsigned char codeword[FEC_RSM];
     size_t cw_len = 0;
     for (size_t row = 0; row < rs_n; row++) {
       size_t off = column + row * rounds * FEC_BLOCK_SIZE;
@@ -132,7 +142,6 @@ int main(int argc, char **argv) {
     encode_rs_char(rs, codeword, fec + column * (size_t)roots);
   }
 
-  /* 4 KiB libfec footer (struct fec_header, little-endian, packed). */
   /*
    * 60-byte libfec footer (struct fec_header, little-endian, packed).
    * AOSP's fec tool writes exactly sizeof(struct fec_header) bytes after
@@ -166,7 +175,6 @@ int main(int argc, char **argv) {
     die("short write on output");
   fclose(out);
 
-  free(codeword);
   free(fec);
   free(data);
   free_rs_char(rs);

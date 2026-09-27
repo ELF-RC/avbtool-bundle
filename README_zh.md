@@ -4,7 +4,7 @@
 
 原项目：https://github.com/AndroidBootloader/platform_external_avb
 
-AVBTOOL Mod 把上游 `avbtool.py`（platform_external_avb）和它运行时依赖的外部工具一起打包成一个自包含的发布产物。`avbtool.py` 本身保持上游原样，不改变任何行为、默认参数或命令结构。
+AVBTOOL Mod 把上游 `avbtool.py`（platform_external_avb）和它运行时依赖的外部工具一起打包成一个自包含的发布产物。`avbtool.py` 基于上游源码，唯一有意偏离是 `add_hashtree_footer` 上可选的 `--parallel N` 参数（默认 `N=1`，保持原行为），其余默认参数和命令结构不变。
 
 ## 产物内容
 
@@ -21,7 +21,7 @@ bin/
 
 ## 各组件说明
 
-- `avbtool.py` — 上游源码，未修改。RSA 密钥解析、RSA-2048/4096/8192 签名与验签、AOSP 兼容的 FEC 生成，均通过 shell 调用外部 `openssl` 和 `fec` 完成。
+- `avbtool.py` — 上游源码，仅一处有意偏离：`add_hashtree_footer` 新增 `--parallel N`（默认 1 为串行；N > 1 时用 multiprocessing 绕过 GIL，适用于大镜像）。输出与串行路径逐字节一致，N 不影响结果。其余行为、默认参数和命令结构不变。
 - `fec/` — vendored 的 AOSP `external/fec` 源码（Phil Karn libFEC）。`fec_core/fec_cli.c` 是基于其 RS-8 char 编解码器（`encode_rs_char.c`、`init_rs_char.c`、`fec.c`）的小封装，实现 avbtool 期望的 `fec --print-fec-size` / `fec --encode` 协议，包括 60 字节 packed `struct fec_header` 尾部（magic `0xfecfecfe`）及原始奇偶数据的 SHA-256 摘要。
 - `openssl/` — vendored 的 OpenSSL 4.2.0-dev 源码，以 `no-asm no-shared -no-docs` 构建，使产物中的 `openssl` CLI 与 `libcrypto.a` 自包含。
 - `contrib/` — 上游的 dm-verity/AVB Linux 内核补丁（仅作参考材料，构建不使用）。
@@ -42,7 +42,7 @@ bin/
 命令集与上游 `avbtool 1.2.0` 完全一致，完整树见 `./avbtool --help`。与签名相关的重点：
 
 - `add_hash_footer` — 小分区（boot/recovery/dtbo）签名。
-- `add_hashtree_footer` — 大分区（system/vendor）dm-verity hashtree 签名；`--fec_num_roots N` 调用内置 `fec` 生成 FEC 数据；`--calc_max_image_size` 打印给定 `--partition_size` 下可容纳的最大镜像。
+- `add_hashtree_footer` — 大分区（system/vendor）dm-verity hashtree 签名；`--fec_num_roots N` 调用内置 `fec` 生成 FEC 数据（OpenMP 加速，输出与线程数无关）；`--calc_max_image_size` 打印给定 `--partition_size` 下可容纳的最大镜像；`--parallel N`（默认 1，串行）在大镜像时用 N 个进程并行做 level-0 块哈希，输出与串行路径逐字节一致。
 - `resize_image` — 已签名镜像按新分区大小重新适配。
 - `verify_image` / `info_image` / `print_partition_digests` — 校验与查看。
 - `make_vbmeta_image`、`append_vbmeta_image`、`extract_vbmeta_image`、`extract_public_key`、`erase_footer`、`zero_hashtree` — footer/vbmeta 操作。
