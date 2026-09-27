@@ -4,182 +4,53 @@
 
 原项目：https://github.com/AndroidBootloader/platform_external_avb
 
-AVBTOOL Mod 是从原版 Android Verified Boot 项目中独立出来的 `avbtool`。它保留上游命令结构，并在进程内完成 RSA 运算、签名校验和内置 FEC 生成。
+AVBTOOL Mod 把上游 `avbtool.py`（platform_external_avb）和它运行时依赖的外部工具一起打包成一个自包含的发布产物。`avbtool.py` 本身保持上游原样，不改变任何行为、默认参数或命令结构。
 
-## 新增改动
+## 产物内容
 
-AVBTOOL Mod 所做的改动：
-
-- `--pass-file <FILE>`：为签名命令、`extract_public_key` 和 `verify_image` 在进程内读取加密 RSA 密钥的口令。密钥不会被写入解密后的临时文件。
-- `--dynamic_partition_size`：为 `add_hash_footer` 和 `add_hashtree_footer` 自动计算分区大小。它不能与 `--partition_size` 或 `--calc_max_image_size` 同时使用。
-- 内置 FEC：`add_hashtree_footer` 默认生成与 AOSP 兼容的 FEC 数据及其 4 KiB 尾部，不需要外部 `fec` 工具。
-- 进程内加密实现：使用 `cryptography` 解析并签署 PEM 和 DER 格式的 RSA 密钥。`verify_image` 不调用 OpenSSL 即可校验签名。
-- Python 3 输出修复：默认写入二进制数据的命令可以直接使用标准输出，不会再出现二进制流 `AttributeError`。
-
-## 环境要求
-
-- Python 3.11 或更新版本
-- `cryptography` 包
-
-```sh
-python3 -m pip install cryptography
-python3 avbtool.py --help
-```
-
-手动构建工作流会同时使用 PyInstaller 和 Nuitka，为 Ubuntu 22.04 amd64 和 arm64 构建独立可执行文件。每个产物命名为 `avbtool-mod-<版本号>-<指令集>-<构建方式>-<上海日期>.zip`，其中包含 `avbtool`；两种构建方式都会打包 `cryptography`。
-
-## 命令树
-
-以下命令树根据当前 `avbtool.py` 中的 `argparse` 命令定义整理。带星号的命令同时接受下方共享参数组中的参数。
+构建工作流在每个架构上编译三个二进制文件，打进同一个压缩包：
 
 ```text
-avbtool
-├── generate_test_image
-│   ├── --image_size <NUMBER>              必填
-│   ├── --start_byte <NUMBER>              默认：0
-│   └── --output <FILE>                    默认：标准输出
-├── version
-├── extract_public_key
-│   ├── --key <FILE>                       必填
-│   ├── --output <FILE>                    必填
-│   └── --pass-file <FILE>
-├── make_vbmeta_image *
-│   ├── --output <FILE>
-│   └── --padding_size <NUMBER>            默认：0
-├── add_hash_footer *
-│   ├── --image <FILE>
-│   ├── --partition_size <NUMBER>          默认：0
-│   ├── --dynamic_partition_size
-│   ├── --partition_name <NAME>
-│   ├── --hash_algorithm <NAME>            默认：sha256
-│   ├── --salt <HEX>                       默认：随机
-│   ├── --calc_max_image_size
-│   ├── --output_vbmeta_image <FILE>
-│   ├── --do_not_append_vbmeta_image
-│   └── Footer options
-├── append_vbmeta_image
-│   ├── --image <FILE>                     必填
-│   ├── --partition_size <NUMBER>          必填
-│   └── --vbmeta_image <FILE>              必填
-├── add_hashtree_footer *
-│   ├── --image <FILE>
-│   ├── --partition_size <NUMBER>          默认：0
-│   ├── --dynamic_partition_size
-│   ├── --partition_name <NAME>            默认：空
-│   ├── --hash_algorithm <NAME>            默认：sha1
-│   ├── --salt <HEX>                       默认：随机
-│   ├── --block_size <NUMBER>              默认：4096
-│   ├── --do_not_generate_fec
-│   ├── --fec_num_roots <NUMBER>           默认：2
-│   ├── --calc_max_image_size
-│   ├── --output_vbmeta_image <FILE>
-│   ├── --do_not_append_vbmeta_image
-│   ├── --setup_as_rootfs_from_kernel
-│   ├── --no_hashtree
-│   └── Footer options
-├── erase_footer
-│   ├── --image <FILE>                     必填
-│   └── --keep_hashtree
-├── zero_hashtree
-│   └── --image <FILE>                     必填
-├── extract_vbmeta_image
-│   ├── --image <FILE>                     必填
-│   ├── --output <FILE>                    默认：标准输出
-│   └── --padding_size <NUMBER>            默认：0
-├── resize_image
-│   ├── --image <FILE>                     必填
-│   └── --partition_size <NUMBER>          必填
-├── info_image
-│   ├── --image <FILE>                     必填
-│   └── --output <FILE>                    默认：标准输出
-├── verify_image
-│   ├── --image <FILE>                     必填
-│   ├── --key <KEY>
-│   ├── --pass-file <FILE>
-│   ├── --expected_chain_partition <PART_NAME:ROLLBACK_SLOT:KEY_PATH>
-│   │                                      可重复
-│   ├── --follow_chain_partitions
-│   └── --accept_zeroed_hashtree
-├── print_partition_digests
-│   ├── --image <FILE>                     必填
-│   ├── --output <FILE>                    默认：标准输出
-│   └── --json
-├── calculate_vbmeta_digest
-│   ├── --image <FILE>                     必填
-│   ├── --hash_algorithm <NAME>            默认：sha256
-│   └── --output <FILE>                    默认：标准输出
-├── calculate_kernel_cmdline
-│   ├── --image <FILE>                     必填
-│   ├── --hashtree_disabled
-│   └── --output <FILE>                    默认：标准输出
-├── set_ab_metadata
-│   ├── --misc_image <FILE>                必填；不存在时自动创建
-│   └── --slot_data <A:B>                  默认：15:7:0:14:7:0
-├── make_atx_certificate
-│   ├── --output <FILE>                    默认：标准输出
-│   ├── --subject <FILE>                   必填
-│   ├── --subject_key <FILE>               必填；PEM 或 DER 公钥
-│   ├── --subject_key_version <NUMBER>     默认：当前时间
-│   ├── --subject_is_intermediate_authority
-│   ├── --usage <STRING>
-│   ├── --authority_key <FILE>
-│   ├── --signing_helper <PROGRAM>
-│   └── --signing_helper_with_files <PROGRAM>
-├── make_atx_permanent_attributes
-│   ├── --output <FILE>                    默认：标准输出
-│   ├── --root_authority_key <FILE>        必填；PEM 或 DER 公钥
-│   └── --product_id <FILE>                必填；必须为 16 字节
-├── make_atx_metadata
-│   ├── --output <FILE>                    默认：标准输出
-│   ├── --intermediate_key_certificate <FILE>
-│   │                                      必填
-│   └── --product_key_certificate <FILE>   必填
-└── make_atx_unlock_credential
-    ├── --output <FILE>                    默认：标准输出
-    ├── --intermediate_key_certificate <FILE>
-    │                                      必填
-    ├── --unlock_key_certificate <FILE>    必填
-    ├── --challenge <FILE>                 可选；必须为 16 字节
-    ├── --unlock_key <FILE>                使用 --challenge 时必填
-    ├── --signing_helper <PROGRAM>
-    └── --signing_helper_with_files <PROGRAM>
+bin/
+├── avbtool    # 上游 avbtool.py 冻结产物（PyInstaller 或 Nuitka）
+├── fec        # 独立 CLI，实现 AOSP libfec 的 RS-8 协议
+└── openssl    # OpenSSL 4.2.0-dev CLI + 静态 libcrypto
 ```
 
-带 `*` 的命令接受以下共享参数：
+`avbtool` 运行时按名字调用 `fec` 和 `openssl`，因此三者必须在 `PATH` 上（例如解压后把 `bin/` 加入 `PATH`）。`fec` 与 `openssl` 为静态链接，运行时无动态库依赖。
 
-```text
-签名与元数据参数
-├── --algorithm <ALGORITHM>                默认：NONE
-├── --key <KEY>
-├── --signing_helper <PROGRAM>
-├── --signing_helper_with_files <PROGRAM>
-├── --public_key_metadata <FILE>
-├── --rollback_index <NUMBER>              默认：0
-├── --rollback_index_location <NUMBER>     默认：0
-├── --append_to_release_string <STRING>
-├── --prop <KEY:VALUE>                     可重复
-├── --prop_from_file <KEY:PATH>            可重复
-├── --kernel_cmdline <CMDLINE>             可重复
-├── --setup_rootfs_from_kernel <IMAGE>
-│   别名：--generate_dm_verity_cmdline_from_hashtree
-├── --include_descriptors_from_image <IMAGE>
-│                                          可重复
-├── --print_required_libavb_version
-├── --chain_partition <PART_NAME:ROLLBACK_SLOT:KEY_PATH>
-│                                          可重复
-├── --flags <NUMBER>                       默认：0
-├── --set_hashtree_disabled_flag
-└── --pass-file <FILE>
+## 各组件说明
 
-Footer 参数
-├── --use_persistent_digest
-└── --do_not_use_ab
-```
+- `avbtool.py` — 上游源码，未修改。RSA 密钥解析、RSA-2048/4096/8192 签名与验签、AOSP 兼容的 FEC 生成，均通过 shell 调用外部 `openssl` 和 `fec` 完成。
+- `fec/` — vendored 的 AOSP `external/fec` 源码（Phil Karn libFEC）。`fec_core/fec_cli.c` 是基于其 RS-8 char 编解码器（`encode_rs_char.c`、`init_rs_char.c`、`fec.c`）的小封装，实现 avbtool 期望的 `fec --print-fec-size` / `fec --encode` 协议，包括 60 字节 packed `struct fec_header` 尾部（magic `0xfecfecfe`）及原始奇偶数据的 SHA-256 摘要。
+- `openssl/` — vendored 的 OpenSSL 4.2.0-dev 源码，以 `no-asm no-shared -no-docs` 构建，使产物中的 `openssl` CLI 与 `libcrypto.a` 自包含。
+- `contrib/` — 上游的 dm-verity/AVB Linux 内核补丁（仅作参考材料，构建不使用）。
 
-支持的 `<ALGORITHM>` 为 `NONE`、`SHA256_RSA2048`、`SHA256_RSA4096`、`SHA256_RSA8192`、`SHA512_RSA2048`、`SHA512_RSA4096` 和 `SHA512_RSA8192`。
+## 构建（GitHub Actions）
+
+工作流在 Ubuntu 22.04 上为 amd64 和 arm64 构建，每种架构使用两种 avbtool 构建器（共 4 个 job）：
+
+| 矩阵 | Runner | avbtool 构建器 |
+|------|--------|----------------|
+| amd64 / arm64 | ubuntu-22.04(-arm) | PyInstaller `--onefile` |
+| amd64 / arm64 | ubuntu-22.04(-arm) | Nuitka `--standalone --onefile --static-libpython=yes` |
+
+流程：配置 + 编译 + 安装 vendored OpenSSL → 用静态 `libcrypto` 编译 `fec` → 冻结 `avbtool.py` → 组装 `bin/{avbtool,fec,openssl}` 为 `avbtool-mod-<版本号>-<指令集>-<构建方式>-<YYYYMMDD>.tar.gz`（另附 `-logs` 产物）。触发方式：`workflow_dispatch` 与 main 分支 push。
+
+## 命令结构
+
+命令集与上游 `avbtool 1.2.0` 完全一致，完整树见 `./avbtool --help`。与签名相关的重点：
+
+- `add_hash_footer` — 小分区（boot/recovery/dtbo）签名。
+- `add_hashtree_footer` — 大分区（system/vendor）dm-verity hashtree 签名；`--fec_num_roots N` 调用内置 `fec` 生成 FEC 数据；`--calc_max_image_size` 打印给定 `--partition_size` 下可容纳的最大镜像。
+- `resize_image` — 已签名镜像按新分区大小重新适配。
+- `verify_image` / `info_image` / `print_partition_digests` — 校验与查看。
+- `make_vbmeta_image`、`append_vbmeta_image`、`extract_vbmeta_image`、`extract_public_key`、`erase_footer`、`zero_hashtree` — footer/vbmeta 操作。
+- `make_atx_certificate` / `make_atx_permanent_attributes` / `make_atx_metadata` / `make_atx_unlock_credential` — Android ATX 证书签名。
 
 ## 许可证
 
-`avbtool.py` 和 `LICENSE` 保留上游 Apache 2.0 许可条款。
-
-Copyright 2016, The Android Open Source Project
+- `avbtool.py`、`contrib/` 与 `LICENSE`：Apache 2.0，Copyright 2016, The Android Open Source Project。
+- `fec/`：LGPL 2.1+（AOSP external/fec，源自 Phil Karn 的 libFEC）。
+- `openssl/`：Apache 2.0（OpenSSL Project）。
+- `fec_core/fec_cli.c`：Apache 2.0，本项目。
