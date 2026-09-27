@@ -17,8 +17,16 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-22.04
+            builder: pyinstaller
           - arch: arm64
             runner: ubuntu-22.04-arm
+            builder: pyinstaller
+          - arch: amd64
+            runner: ubuntu-22.04
+            builder: nuitka
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            builder: nuitka
 
     runs-on: ${{ matrix.runner }}
 
@@ -39,14 +47,18 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller
+          if [ "${{ matrix.builder }}" = "pyinstaller" ]; then
+            python -m pip install pyinstaller
+          else
+            python -m pip install nuitka ordered-set zstandard
+          fi
 
       - name: Resolve release metadata
         id: meta
         run: |
           VERSION="$(python -c 'text=open("avbtool.py", encoding="utf-8").read().splitlines(); names=("MAJOR", "MINOR", "SUB"); print(".".join(next(line.split("=", 1)[1].strip() for line in text if line.startswith("AVB_VERSION_%s = " % name)) for name in names))')"
           DATE="$(TZ=Asia/Shanghai date +%Y%m%d)"
-          NAME="avbtool-mod-${VERSION}-${{ matrix.arch }}-${DATE}"
+          NAME="avbtool-mod-${VERSION}-${{ matrix.arch }}-${{ matrix.builder }}-${DATE}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "date=$DATE" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
@@ -114,6 +126,7 @@ jobs:
           echo "fec CLI OK"
 
       - name: Build avbtool (PyInstaller)
+        if: matrix.builder == 'pyinstaller'
         run: |
           python -m PyInstaller \
             --clean \
@@ -122,18 +135,40 @@ jobs:
             avbtool.py > build_logs/pyinstaller.log 2>&1
           ls -l dist/avbtool
 
+      - name: Build avbtool (Nuitka)
+        if: matrix.builder == 'nuitka'
+        run: |
+          set -o pipefail
+          python -m nuitka \
+            --standalone \
+            --onefile \
+            --output-filename=avbtool \
+            --output-dir=.avbtool-dist \
+            --assume-yes-for-downloads \
+            --verbose \
+            --verbose-output=build_logs/nuitka-build.log \
+            --onefile-no-compression \
+            --static-libpython=yes \
+            avbtool.py > build_logs/nuitka-stdout.log 2>&1
+          ls -l .avbtool-dist/avbtool
+
       - name: Assemble package
         run: |
           rm -rf pkg && mkdir -p pkg/bin
-          install -m 755 dist/avbtool pkg/bin/avbtool
+          if [ "${{ matrix.builder }}" = "pyinstaller" ]; then
+            AVB="dist/avbtool"
+          else
+            AVB=".avbtool-dist/avbtool"
+          fi
+          install -m 755 "$AVB" pkg/bin/avbtool
           install -m 755 bin/fec pkg/bin/fec
           install -m 755 openssl/install/bin/openssl pkg/bin/openssl
           # All three binaries are static/self-contained (no runtime .so needed).
           # Sanity-check: fec/openssl must run with NO library paths set.
           env -i ./pkg/bin/fec --print-fec-size 4096 --roots 2
           env -i ./pkg/bin/openssl version
-          # avbtool is a frozen PyInstaller onefile; just confirm it is an
-          # executable ELF (we cannot run it here if arch != runner arch).
+          # avbtool is a frozen onefile; just confirm it is an executable ELF
+          # (we cannot run it here if arch != runner arch).
           file pkg/bin/avbtool || true
           (cd pkg && tar -czf "../${{ steps.meta.outputs.name }}.tar.gz" bin)
           tar -tzvf "${{ steps.meta.outputs.name }}.tar.gz"
@@ -149,12 +184,20 @@ jobs:
             echo "Date: $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S %Z')"
             echo "Runner: ${{ matrix.runner }}"
             echo "Architecture: ${{ matrix.arch }}"
+            echo "Builder: ${{ matrix.builder }}"
             echo ""
             echo "=== System Info ==="
             uname -a
             echo ""
             echo "=== Python Version ==="
             python --version
+            if [ "${{ matrix.builder }}" = "nuitka" ]; then
+              echo "=== Nuitka Version ==="
+              python -m nuitka --version 2>&1 || true
+            else
+              echo "=== PyInstaller Version ==="
+              python -m PyInstaller --version 2>&1 || true
+            fi
           } > logs/workflow-env.log
           find build_logs -type f -exec cp --parents {} logs/ \; 2>/dev/null || true
 
