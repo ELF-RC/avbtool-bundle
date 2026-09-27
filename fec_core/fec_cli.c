@@ -4,7 +4,7 @@
  *   fec --print-fec-size SIZE --roots N
  *       Print the number of bytes of FEC data for an input of SIZE bytes.
  *   fec --encode [--roots N] INPUT OUTPUT
- *       Encode INPUT into OUTPUT (RS parity + 4 KiB libfec footer).
+ *       Encode INPUT into OUTPUT (RS parity + 60-byte libfec footer).
  *
  * Interleaving follows system/extras/libfec: the input is grouped into
  * rounds of rs_n = 255 - roots blocks; each codeword takes one byte
@@ -43,7 +43,8 @@ static size_t fec_size_for(size_t input_size, int roots) {
   size_t rs_n = (size_t)FEC_RSM - (size_t)roots;
   size_t blocks = (input_size + FEC_BLOCK_SIZE - 1) / FEC_BLOCK_SIZE;
   size_t rounds = (blocks + rs_n - 1) / rs_n;
-  return rounds * (size_t)roots * FEC_BLOCK_SIZE + FEC_BLOCK_SIZE;
+  /* raw parity + 60-byte struct fec_header (see AOSP system/extras/libfec) */
+  return rounds * (size_t)roots * FEC_BLOCK_SIZE + 60;
 }
 
 int main(int argc, char **argv) {
@@ -132,7 +133,15 @@ int main(int argc, char **argv) {
   }
 
   /* 4 KiB libfec footer (struct fec_header, little-endian, packed). */
-  unsigned char footer[FEC_BLOCK_SIZE];
+  /*
+   * 60-byte libfec footer (struct fec_header, little-endian, packed).
+   * AOSP's fec tool writes exactly sizeof(struct fec_header) bytes after
+   * the raw FEC payload — NOT a 4 KiB block.  avbtool.py reads the last
+   * struct.calcsize(FEC_FOOTER_FORMAT) = 60 bytes of the output and
+   * unpacks '<LLLLLQ32s', so the footer must sit at byte offset
+   * raw_size, not at the end of a 4 KiB padding region.
+   */
+  unsigned char footer[60];
   memset(footer, 0, sizeof(footer));
   uint32_t magic = FEC_MAGIC;
   memcpy(footer + 0, &magic, 4);                    /* magic */
