@@ -17,12 +17,6 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-22.04
-            builder: pyinstaller
-          - arch: arm64
-            runner: ubuntu-22.04-arm
-            builder: pyinstaller
-          - arch: amd64
-            runner: ubuntu-22.04
             builder: nuitka
           - arch: arm64
             runner: ubuntu-22.04-arm
@@ -47,11 +41,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ "${{ matrix.builder }}" = "pyinstaller" ]; then
-            python -m pip install pyinstaller
-          else
-            python -m pip install nuitka ordered-set zstandard
-          fi
+          python -m pip install nuitka ordered-set zstandard
 
       - name: Resolve release metadata
         id: meta
@@ -128,18 +118,7 @@ jobs:
           ./bin/fec --print-fec-size 4096 --roots 2
           echo "fec CLI OK"
 
-      - name: Build avbtool (PyInstaller)
-        if: matrix.builder == 'pyinstaller'
-        run: |
-          python -m PyInstaller \
-            --clean \
-            --onefile \
-            --name avbtool \
-            avbtool.py > build_logs/pyinstaller.log 2>&1
-          ls -l dist/avbtool
-
       - name: Build avbtool (Nuitka)
-        if: matrix.builder == 'nuitka'
         run: |
           set -o pipefail
           python -m nuitka \
@@ -158,12 +137,7 @@ jobs:
       - name: Assemble package
         run: |
           rm -rf pkg && mkdir -p pkg/bin
-          if [ "${{ matrix.builder }}" = "pyinstaller" ]; then
-            AVB="dist/avbtool"
-          else
-            AVB=".avbtool-dist/avbtool"
-          fi
-          install -m 755 "$AVB" pkg/bin/avbtool
+          install -m 755 .avbtool-dist/avbtool pkg/bin/avbtool
           install -m 755 bin/fec pkg/bin/fec
           install -m 755 openssl/install/bin/openssl pkg/bin/openssl
           # All three binaries are static/self-contained (no runtime .so needed).
@@ -194,13 +168,8 @@ jobs:
             echo ""
             echo "=== Python Version ==="
             python --version
-            if [ "${{ matrix.builder }}" = "nuitka" ]; then
-              echo "=== Nuitka Version ==="
-              python -m nuitka --version 2>&1 || true
-            else
-              echo "=== PyInstaller Version ==="
-              python -m PyInstaller --version 2>&1 || true
-            fi
+            echo "=== Nuitka Version ==="
+            python -m nuitka --version 2>&1 || true
           } > logs/workflow-env.log
           find build_logs -type f -exec cp --parents {} logs/ \; 2>/dev/null || true
 
