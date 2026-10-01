@@ -40,7 +40,7 @@ import time
 # Keep in sync with libavb/avb_version.h.
 AVB_VERSION_MAJOR = 1
 AVB_VERSION_MINOR = 2
-AVB_VERSION_SUB = 0
+AVB_VERSION_SUB = 5
 
 # Keep in sync with libavb/avb_footer.h.
 AVB_FOOTER_VERSION_MAJOR = 1
