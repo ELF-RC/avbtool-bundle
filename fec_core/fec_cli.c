@@ -18,6 +18,11 @@
 #include <string.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
 
 #include <openssl/sha.h>
 
@@ -99,13 +104,36 @@ int main(int argc, char **argv) {
   FILE *in = fopen(input, "rb");
   if (!in) die("cannot open input");
 
-  /* Read the whole input into memory. */
+  /* Load the whole input for the interleaved encode.
+   *
+   * Ordinary files are memory-mapped read-only (MAP_PRIVATE): bytes come
+   * from the OS page cache on demand instead of a heap copy, so the
+   * process RSS stays near the codec's own allocations rather than
+   * growing with the image size.  Pipes, block devices, and anything
+   * that cannot be mapped fall back to malloc + fread; the encode loop
+   * itself is byte-identical either way (same file, same offsets,
+   * same values), so the output does not depend on which path ran.
+   */
+  int in_fd = fileno(in);
   long in_len;
   if (fseek(in, 0, SEEK_END) || (in_len = ftell(in)) < 0 || fseek(in, 0, SEEK_SET))
     die("cannot stat input");
-  unsigned char *data = malloc(in_len ? in_len : 1);
-  if (!data) die("out of memory");
-  if (fread(data, 1, in_len, in) != (size_t)in_len) die("short read on input");
+
+  unsigned char *data = NULL;
+  int mapped = 0;
+  struct stat st;
+  if (fstat(in_fd, &st) == 0 && S_ISREG(st.st_mode) && in_len > 0) {
+    void *m = mmap(NULL, (size_t)in_len, PROT_READ, MAP_PRIVATE, in_fd, 0);
+    if (m != MAP_FAILED) {
+      data = (unsigned char *)m;
+      mapped = 1;
+    }
+  }
+  if (!mapped) {
+    data = malloc(in_len ? in_len : 1);
+    if (!data) die("out of memory");
+    if (fread(data, 1, in_len, in) != (size_t)in_len) die("short read on input");
+  }
   fclose(in);
 
   const size_t input_size = (size_t)in_len;
@@ -176,7 +204,10 @@ int main(int argc, char **argv) {
   fclose(out);
 
   free(fec);
-  free(data);
+  if (mapped)
+    munmap(data, (size_t)in_len);
+  else
+    free(data);
   free_rs_char(rs);
   return 0;
 }
