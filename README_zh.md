@@ -1,10 +1,66 @@
-# AVBTOOL Mod
+# AVBTOOL Bundle
 
 [English](README.md) | 中文
 
 原项目：https://github.com/AndroidBootloader/platform_external_avb
 
-AVBTOOL Mod 把上游 `avbtool.py`（platform_external_avb）和它运行时依赖的外部工具一起打包成一个自包含的发布产物。`avbtool.py` 基于上游源码，唯一有意偏离是 `add_hashtree_footer` 上可选的 `--threads N` 参数（默认 `N=1`，保持原行为），其余默认参数和命令结构不变。
+## 命令树
+
+### avbtool
+
+```
+avbtool
+├── generate_test_image           生成已知图案的测试镜像
+├── version                       打印 avbtool 版本
+├── extract_public_key            提取公钥
+├── make_vbmeta_image             生成 vbmeta 镜像
+├── add_hash_footer               为镜像添加哈希和 footer
+├── append_vbmeta_image           将 vbmeta 镜像追加到镜像
+├── add_hashtree_footer           为镜像添加哈希树和 footer
+├── erase_footer                  擦除镜像 footer
+├── zero_hashtree                 清零哈希树和 FEC 数据
+├── extract_vbmeta_image          从带 footer 的镜像提取 vbmeta
+├── resize_image                  调整带 footer 镜像的尺寸
+├── info_image                    查看 vbmeta 或 footer 信息
+├── verify_image                  校验镜像
+├── print_partition_digests       打印分区摘要
+├── calculate_vbmeta_digest       计算 vbmeta 摘要
+├── calculate_kernel_cmdline      计算内核 cmdline
+├── set_ab_metadata               设置 A/B 元数据
+├── make_atx_certificate          创建 ATX 证书
+├── make_atx_permanent_attributes 创建 ATX 永久属性
+├── make_atx_metadata             创建 ATX 元数据
+└── make_atx_unlock_credential    创建 ATX 解锁凭证
+```
+
+### fec
+
+```
+fec
+├── --print-fec-size SIZE --roots N   打印 SIZE 字节输入对应的 FEC 字节数
+└── --encode [--roots N] INPUT OUTPUT 将 INPUT 编码到 OUTPUT（RS 奇偶 + 60 字节 footer）
+```
+
+### openssl
+
+```
+openssl
+├── 标准命令
+│   ├── asn1parse  ca  ciphers  cmp  cms  configutl  crl  crl2pkcs7
+│   ├── dgst  dhparam  dsa  dsaparam  ec  ech  ecparam  enc
+│   ├── errstr  fipsinstall  gendsa  genpkey  genrsa  help  info  kdf
+│   ├── list  mac  nseq  ocsp  passwd  pkcs12  pkcs7  pkcs8
+│   ├── pkey  pkeyparam  pkeyutl  prime  rand  rehash  req  rsa
+│   ├── rsautl  s_client  s_server  s_time  sess_id  skeyutl  smime
+│   ├── speed  spkac  srp  storeutl  ts  verify  version  x509
+├── 消息摘要
+│   └── blake2b512  blake2s256  md4  md5  mdc2  rmd160  sha1  sha224
+│       sha256  sha3-224  sha3-256  sha3-384  sha3-512  sha384  sha512
+│       sha512-224  sha512-256  shake128  shake256  sm3
+└── 密码算法（经 enc）
+    └── aes-128/192/256-{cbc,ecb,cfb,ctr,ofb}  aria-*  base64  cast-*
+        des-*  des-ede*  等
+```
 
 ## 产物内容
 
@@ -25,28 +81,6 @@ bin/
 - `fec/` — vendored 的 AOSP `external/fec` 源码（Phil Karn libFEC）。`fec_core/fec_cli.c` 是基于其 RS-8 char 编解码器（`encode_rs_char.c`、`init_rs_char.c`、`fec.c`）的小封装，实现 avbtool 期望的 `fec --print-fec-size` / `fec --encode` 协议，包括 60 字节 packed `struct fec_header` 尾部（magic `0xfecfecfe`）及原始奇偶数据的 SHA-256 摘要。
 - `openssl/` — vendored 的 OpenSSL 4.2.0-dev 源码，以 `no-asm no-shared -no-docs` 构建，使产物中的 `openssl` CLI 与 `libcrypto.a` 自包含。
 - `contrib/` — 上游的 dm-verity/AVB Linux 内核补丁（仅作参考材料，构建不使用）。
-
-## 构建（GitHub Actions）
-
-工作流在 Ubuntu 22.04 上为 amd64 和 arm64 构建，每种架构使用两种 avbtool 构建器（共 4 个 job）：
-
-| 矩阵 | Runner | avbtool 构建器 |
-|------|--------|----------------|
-| amd64 / arm64 | ubuntu-22.04(-arm) | PyInstaller `--onefile` |
-| amd64 / arm64 | ubuntu-22.04(-arm) | Nuitka `--standalone --onefile --static-libpython=yes` |
-
-流程：配置 + 编译 + 安装 vendored OpenSSL → 用静态 `libcrypto` 编译 `fec` → 冻结 `avbtool.py` → 组装 `bin/{avbtool,fec,openssl}` 为单层 `avbtool-mod-<版本号>-<指令集>-<构建方式>-<YYYYMMDD>.zip`（`bin/` 位于 zip 根目录，不再套 tar 层；另附 `-logs` 产物）。触发方式：`workflow_dispatch` 与 main / edge 分支 push。
-
-## 命令结构
-
-命令集与上游 `avbtool 1.2.0` 完全一致，完整树见 `./avbtool --help`。与签名相关的重点：
-
-- `add_hash_footer` — 小分区（boot/recovery/dtbo）签名。
-- `add_hashtree_footer` — 大分区（system/vendor）dm-verity hashtree 签名；`--fec_num_roots N` 调用内置 `fec` 生成 FEC 数据（OpenMP 加速，输出与线程数无关）；`--calc_max_image_size` 打印给定 `--partition_size` 下可容纳的最大镜像；`--threads N`（默认 1，串行）在大镜像时用 N 个进程并行做 level-0 块哈希，输出与串行路径逐字节一致。
-- `resize_image` — 已签名镜像按新分区大小重新适配。
-- `verify_image` / `info_image` / `print_partition_digests` — 校验与查看。
-- `make_vbmeta_image`、`append_vbmeta_image`、`extract_vbmeta_image`、`extract_public_key`、`erase_footer`、`zero_hashtree` — footer/vbmeta 操作。
-- `make_atx_certificate` / `make_atx_permanent_attributes` / `make_atx_metadata` / `make_atx_unlock_credential` — Android ATX 证书签名。
 
 ## 许可证
 

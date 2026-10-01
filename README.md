@@ -1,10 +1,66 @@
-# AVBTOOL Mod
+# AVBTOOL Bundle
 
 English | [中文](README_zh.md)
 
 Original project: https://github.com/AndroidBootloader/platform_external_avb
 
-AVBTOOL Mod packages the upstream `avbtool.py` (platform_external_avb) together with the external tools it shells out to, into one self-contained release artifact. `avbtool.py` is based on the upstream source; the only intentional deviation is the optional `--threads N` flag on `add_hashtree_footer` (default `N=1`, preserving original behaviour). All other default values and command surface are unchanged.
+## Command tree
+
+### avbtool
+
+```
+avbtool
+├── generate_test_image           Generates a test image with a known pattern
+├── version                       Prints the version of avbtool
+├── extract_public_key            Extract a public key
+├── make_vbmeta_image             Make a vbmeta image
+├── add_hash_footer               Add hash and footer to an image
+├── append_vbmeta_image           Append a vbmeta image to an image
+├── add_hashtree_footer           Add hashtree and footer to an image
+├── erase_footer                  Erase the footer from an image
+├── zero_hashtree                 Zero out the hashtree and FEC data
+├── extract_vbmeta_image          Extract vbmeta from an image with a footer
+├── resize_image                  Resize an image with a footer
+├── info_image                    Show information about vbmeta or a footer
+├── verify_image                  Verify an image
+├── print_partition_digests       Print partition digests
+├── calculate_vbmeta_digest       Calculate a vbmeta digest
+├── calculate_kernel_cmdline      Calculate a kernel cmdline
+├── set_ab_metadata               Set A/B metadata
+├── make_atx_certificate          Create an ATX certificate
+├── make_atx_permanent_attributes Create ATX permanent attributes
+├── make_atx_metadata             Create ATX metadata
+└── make_atx_unlock_credential    Create an ATX unlock credential
+```
+
+### fec
+
+```
+fec
+├── --print-fec-size SIZE --roots N   Print the FEC byte count for a SIZE-byte input
+└── --encode [--roots N] INPUT OUTPUT Encode INPUT to OUTPUT (RS parity + 60-byte footer)
+```
+
+### openssl
+
+```
+openssl
+├── Standard
+│   ├── asn1parse  ca  ciphers  cmp  cms  configutl  crl  crl2pkcs7
+│   ├── dgst  dhparam  dsa  dsaparam  ec  ech  ecparam  enc
+│   ├── errstr  fipsinstall  gendsa  genpkey  genrsa  help  info  kdf
+│   ├── list  mac  nseq  ocsp  passwd  pkcs12  pkcs7  pkcs8
+│   ├── pkey  pkeyparam  pkeyutl  prime  rand  rehash  req  rsa
+│   ├── rsautl  s_client  s_server  s_time  sess_id  skeyutl  smime
+│   ├── speed  spkac  srp  storeutl  ts  verify  version  x509
+├── Message digest
+│   └── blake2b512  blake2s256  md4  md5  mdc2  rmd160  sha1  sha224
+│       sha256  sha3-224  sha3-256  sha3-384  sha3-512  sha384  sha512
+│       sha512-224  sha512-256  shake128  shake256  sm3
+└── Cipher (via enc)
+    └── aes-128/192/256-{cbc,ecb,cfb,ctr,ofb}  aria-*  base64  cast-*
+        des-*  des-ede*  etc.
+```
 
 ## What the release contains
 
@@ -25,28 +81,6 @@ bin/
 - `fec/` — vendored AOSP `external/fec` source (Phil Karn libFEC). `fec_core/fec_cli.c` is a small standalone wrapper around its RS-8 char codec (`encode_rs_char.c`, `init_rs_char.c`, `fec.c`) that implements the `fec --print-fec-size` / `fec --encode` protocol avbtool expects, including the 60-byte packed `struct fec_header` footer (magic `0xfecfecfe`) with a SHA-256 digest of the raw parity.
 - `openssl/` — vendored OpenSSL 4.2.0-dev source, built with `no-asm no-shared -no-docs` so the packaged `openssl` CLI and `libcrypto.a` are self-contained.
 - `contrib/` — upstream Linux kernel patches for dm-verity/AVB (reference material only; not used by the build).
-
-## Build (GitHub Actions)
-
-The workflow builds on Ubuntu 22.04 for amd64 and arm64, with two avbtool builders per architecture (4 jobs total):
-
-| Matrix | Runner | avbtool builder |
-|--------|--------|-----------------|
-| amd64 / arm64 | ubuntu-22.04(-arm) | PyInstaller `--onefile` |
-| amd64 / arm64 | ubuntu-22.04(-arm) | Nuitka `--standalone --onefile --static-libpython=yes` |
-
-Steps: configure + build + install OpenSSL from the vendored tree → compile `fec` against the static `libcrypto` → freeze `avbtool.py` → assemble `bin/{avbtool,fec,openssl}` into a single-level `avbtool-mod-<version>-<arch>-<builder>-<YYYYMMDD>.zip` (`bin/` sits at the zip root, no nested tar layer; plus a `-logs` artifact). Triggers: `workflow_dispatch` and push to `main` or `edge`.
-
-## Command surface
-
-The command set is identical to upstream `avbtool 1.2.0`; run `./avbtool --help` for the full tree. Highlights relevant to signing:
-
-- `add_hash_footer` — sign small partitions (boot/recovery/dtbo).
-- `add_hashtree_footer` — sign large partitions (system/vendor) with dm-verity hashtree; `--fec_num_roots N` generates FEC data via the bundled `fec` tool (OpenMP-accelerated, deterministic regardless of thread count); `--calc_max_image_size` prints the largest image that fits a given `--partition_size`; `--threads N` (default 1, serial) runs level-0 block hashing in N worker processes for large images — output is byte-identical to the serial path.
-- `resize_image` — re-fit an already-signed image to a new partition size.
-- `verify_image` / `info_image` / `print_partition_digests` — inspect and validate.
-- `make_vbmeta_image`, `append_vbmeta_image`, `extract_vbmeta_image`, `extract_public_key`, `erase_footer`, `zero_hashtree` — footer/vbmeta manipulation.
-- `make_atx_certificate` / `make_atx_permanent_attributes` / `make_atx_metadata` / `make_atx_unlock_credential` — Android ATX certificate signing.
 
 ## License
 
