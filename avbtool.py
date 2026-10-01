@@ -3493,7 +3493,7 @@ class Avb(object):
                           output_vbmeta_image, do_not_append_vbmeta_image,
                           print_required_libavb_version,
                           use_persistent_root_digest, do_not_use_ab,
-                          no_hashtree, parallel=1):
+                          no_hashtree, threads=1):
     """Implements the 'add_hashtree_footer' command.
 
     See https://gitlab.com/cryptsetup/cryptsetup/wikis/DMVerity for
@@ -3537,7 +3537,7 @@ class Avb(object):
       use_persistent_root_digest: Use a persistent root digest on device.
       do_not_use_ab: The partition does not use A/B.
       no_hashtree: Do not append hashtree. Set size in descriptor as zero.
-      parallel: Number of worker processes for level-0 hashing.
+      threads: Number of worker processes for level-0 hashing.
         1 (the default) uses the original serial loop; values
         above 1 use multiprocessing for speed on large images.
         Output is byte-identical to the serial path.
@@ -3660,7 +3660,7 @@ class Avb(object):
                                                   digest_padding,
                                                   hash_level_offsets,
                                                   tree_size,
-                                                  parallel=parallel)
+                                                  threads=threads)
 
       # Generate HashtreeDescriptor with details about the tree we
       # just generated.
@@ -4051,7 +4051,7 @@ def _parallel_level0_worker(args):
 
 def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
                        digest_padding, hash_level_offsets, tree_size,
-                       parallel=1):
+                       threads=1):
   """Generates a Merkle-tree for a file.
 
   Arguments:
@@ -4067,7 +4067,7 @@ def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
   Returns:
     A tuple where the first element is the top-level hash as bytes and the
     second element is the hash-tree as bytes.
-    parallel: Number of worker processes for level-0 hashing.  1 (the
+    threads: Number of worker processes for level-0 hashing.  1 (the
       default) uses the original serial loop.  A value above 1 uses
       multiprocessing so level-0 digests are computed concurrently in
       separate processes (bypassing the GIL).  The output is
@@ -4083,7 +4083,7 @@ def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
   while hash_src_size > block_size:
     level_output_list = []
     remaining = hash_src_size
-    if level_num == 0 and parallel > 1:
+    if level_num == 0 and threads > 1:
       # Parallel level-0: split the source into contiguous chunks, hash
       # each block independently in worker processes, then stitch the
       # digests back into level_output_list by block offset.  The
@@ -4097,9 +4097,9 @@ def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
       # deadlock against the parent's own handle.
       import multiprocessing as _mp
       num_blocks = (image_size + block_size - 1) // block_size
-      chunk_blocks = (num_blocks + parallel - 1) // parallel
+      chunk_blocks = (num_blocks + threads - 1) // threads
       tasks = []
-      for w in range(parallel):
+      for w in range(threads):
         b0 = w * chunk_blocks
         b1 = min(num_blocks, (w + 1) * chunk_blocks)
         if b0 >= b1:
@@ -4108,7 +4108,7 @@ def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
         off1 = min(image_size, b1 * block_size)
         tasks.append((image.filename, off0, off1 - off0, block_size,
                       hash_alg_name, salt, digest_padding))
-      pool = _mp.Pool(parallel)
+      pool = _mp.Pool(threads)
       try:
         results = pool.map(_parallel_level0_worker, tasks)
       finally:
@@ -4464,7 +4464,7 @@ class AvbTool(object):
     sub_parser.add_argument('--no_hashtree',
                             action='store_true',
                             help='Do not append hashtree')
-    sub_parser.add_argument('--parallel',
+    sub_parser.add_argument('--threads',
                             help=('Number of worker processes for level-0 '
                                   'hashing (default: 1, serial).  Use a '
                                   'value above 1 to bypass the GIL for '
@@ -4849,7 +4849,7 @@ class AvbTool(object):
         args.use_persistent_digest,
         args.do_not_use_ab,
         args.no_hashtree,
-        args.parallel)
+        args.threads)
 
   def erase_footer(self, args):
     """Implements the 'erase_footer' sub-command."""

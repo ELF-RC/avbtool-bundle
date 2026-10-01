@@ -4,7 +4,7 @@ English | [中文](README_zh.md)
 
 Original project: https://github.com/AndroidBootloader/platform_external_avb
 
-AVBTOOL Mod packages the upstream `avbtool.py` (platform_external_avb) together with the external tools it shells out to, into one self-contained release artifact. `avbtool.py` is based on the upstream source; the only intentional deviation is the optional `--parallel N` flag on `add_hashtree_footer` (default `N=1`, preserving original behaviour). All other default values and command surface are unchanged.
+AVBTOOL Mod packages the upstream `avbtool.py` (platform_external_avb) together with the external tools it shells out to, into one self-contained release artifact. `avbtool.py` is based on the upstream source; the only intentional deviation is the optional `--threads N` flag on `add_hashtree_footer` (default `N=1`, preserving original behaviour). All other default values and command surface are unchanged.
 
 ## What the release contains
 
@@ -21,7 +21,7 @@ bin/
 
 ## How the pieces fit together
 
-- `avbtool.py` — upstream source with one intentional deviation: `add_hashtree_footer` accepts `--parallel N` (default 1, serial; N > 1 uses multiprocessing to bypass the GIL for large images). Output is byte-identical to the serial path regardless of N. All other behaviour, defaults, and command surface are unchanged.
+- `avbtool.py` — upstream source with one intentional deviation: `add_hashtree_footer` accepts `--threads N` (default 1, serial; N > 1 uses multiprocessing to bypass the GIL for large images). Output is byte-identical to the serial path regardless of N. All other behaviour, defaults, and command surface are unchanged.
 - `fec/` — vendored AOSP `external/fec` source (Phil Karn libFEC). `fec_core/fec_cli.c` is a small standalone wrapper around its RS-8 char codec (`encode_rs_char.c`, `init_rs_char.c`, `fec.c`) that implements the `fec --print-fec-size` / `fec --encode` protocol avbtool expects, including the 60-byte packed `struct fec_header` footer (magic `0xfecfecfe`) with a SHA-256 digest of the raw parity.
 - `openssl/` — vendored OpenSSL 4.2.0-dev source, built with `no-asm no-shared -no-docs` so the packaged `openssl` CLI and `libcrypto.a` are self-contained.
 - `contrib/` — upstream Linux kernel patches for dm-verity/AVB (reference material only; not used by the build).
@@ -42,7 +42,7 @@ Steps: configure + build + install OpenSSL from the vendored tree → compile `f
 The command set is identical to upstream `avbtool 1.2.0`; run `./avbtool --help` for the full tree. Highlights relevant to signing:
 
 - `add_hash_footer` — sign small partitions (boot/recovery/dtbo).
-- `add_hashtree_footer` — sign large partitions (system/vendor) with dm-verity hashtree; `--fec_num_roots N` generates FEC data via the bundled `fec` tool (OpenMP-accelerated, deterministic regardless of thread count); `--calc_max_image_size` prints the largest image that fits a given `--partition_size`; `--parallel N` (default 1, serial) runs level-0 block hashing in N worker processes for large images — output is byte-identical to the serial path.
+- `add_hashtree_footer` — sign large partitions (system/vendor) with dm-verity hashtree; `--fec_num_roots N` generates FEC data via the bundled `fec` tool (OpenMP-accelerated, deterministic regardless of thread count); `--calc_max_image_size` prints the largest image that fits a given `--partition_size`; `--threads N` (default 1, serial) runs level-0 block hashing in N worker processes for large images — output is byte-identical to the serial path.
 - `resize_image` — re-fit an already-signed image to a new partition size.
 - `verify_image` / `info_image` / `print_partition_digests` — inspect and validate.
 - `make_vbmeta_image`, `append_vbmeta_image`, `extract_vbmeta_image`, `extract_public_key`, `erase_footer`, `zero_hashtree` — footer/vbmeta manipulation.
