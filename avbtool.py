@@ -4106,7 +4106,7 @@ def generate_hash_tree(image, image_size, block_size, hash_alg_name, salt,
           continue
         off0 = b0 * block_size
         off1 = min(image_size, b1 * block_size)
-        tasks.append((image.name, off0, off1 - off0, block_size,
+        tasks.append((image.filename, off0, off1 - off0, block_size,
                       hash_alg_name, salt, digest_padding))
       pool = _mp.Pool(parallel)
       try:
