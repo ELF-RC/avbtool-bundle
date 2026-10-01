@@ -35,7 +35,7 @@ The workflow builds on Ubuntu 22.04 for amd64 and arm64, with two avbtool builde
 | amd64 / arm64 | ubuntu-22.04(-arm) | PyInstaller `--onefile` |
 | amd64 / arm64 | ubuntu-22.04(-arm) | Nuitka `--standalone --onefile --static-libpython=yes` |
 
-Steps: configure + build + install OpenSSL from the vendored tree → compile `fec` against the static `libcrypto` → freeze `avbtool.py` → assemble `bin/{avbtool,fec,openssl}` into `avbtool-mod-<version>-<arch>-<builder>-<YYYYMMDD>.tar.gz` (plus a `-logs` artifact). Triggers: `workflow_dispatch` and push to `main`.
+Steps: configure + build + install OpenSSL from the vendored tree → compile `fec` against the static `libcrypto` → freeze `avbtool.py` → assemble `bin/{avbtool,fec,openssl}` into a single-level `avbtool-mod-<version>-<arch>-<builder>-<YYYYMMDD>.zip` (`bin/` sits at the zip root, no nested tar layer; plus a `-logs` artifact). Triggers: `workflow_dispatch` and push to `main` or `edge`.
 
 ## Command surface
 

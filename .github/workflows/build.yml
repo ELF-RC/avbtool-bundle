@@ -148,8 +148,9 @@ jobs:
           # avbtool is a frozen onefile; just confirm it is an executable ELF
           # (we cannot run it here if arch != runner arch).
           file pkg/bin/avbtool || true
-          (cd pkg && tar -czf "../${{ steps.meta.outputs.name }}.tar.gz" bin)
-          tar -tzvf "${{ steps.meta.outputs.name }}.tar.gz"
+          # 单层 zip，bin/ 为 zip 根目录（解压即得 bin/avbtool 等），不再套 tar.gz。
+          (cd pkg && zip -9 -r "../${{ steps.meta.outputs.name }}.zip" bin)
+          unzip -l "${{ steps.meta.outputs.name }}.zip"
           echo "=== package contents ==="
           ls -lh pkg/bin/
 
@@ -188,7 +189,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.name }}
-          path: ${{ steps.meta.outputs.name }}.tar.gz
+          path: ${{ steps.meta.outputs.name }}.zip
           compression-level: 0
           if-no-files-found: error
           retention-days: 30

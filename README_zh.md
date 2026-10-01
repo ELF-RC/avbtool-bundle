@@ -35,7 +35,7 @@ bin/
 | amd64 / arm64 | ubuntu-22.04(-arm) | PyInstaller `--onefile` |
 | amd64 / arm64 | ubuntu-22.04(-arm) | Nuitka `--standalone --onefile --static-libpython=yes` |
 
-流程：配置 + 编译 + 安装 vendored OpenSSL → 用静态 `libcrypto` 编译 `fec` → 冻结 `avbtool.py` → 组装 `bin/{avbtool,fec,openssl}` 为 `avbtool-mod-<版本号>-<指令集>-<构建方式>-<YYYYMMDD>.tar.gz`（另附 `-logs` 产物）。触发方式：`workflow_dispatch` 与 main 分支 push。
+流程：配置 + 编译 + 安装 vendored OpenSSL → 用静态 `libcrypto` 编译 `fec` → 冻结 `avbtool.py` → 组装 `bin/{avbtool,fec,openssl}` 为单层 `avbtool-mod-<版本号>-<指令集>-<构建方式>-<YYYYMMDD>.zip`（`bin/` 位于 zip 根目录，不再套 tar 层；另附 `-logs` 产物）。触发方式：`workflow_dispatch` 与 main / edge 分支 push。
 
 ## 命令结构
 
